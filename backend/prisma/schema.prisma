@@ -1,0 +1,171 @@
+// Prisma Schema - Political Awareness & Custom Merchandise E-Commerce Platform
+// Database: MongoDB Atlas
+// ORM: Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USER ────────────────────────────────────────────────────────────────────
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  phone     String?
+  address   Json?
+  avatar    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+  cart      Cart?
+  reviews   Review[]
+
+  @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// ─── PRODUCT ─────────────────────────────────────────────────────────────────
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String
+  price       Float
+  imageUrl    String
+  images      String[] @default([])
+  category    String   @default("general")
+  stock       Int      @default(0)
+  isActive    Boolean  @default(true)
+  tags        String[] @default([])
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews     Review[]
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@map("products")
+}
+
+// ─── CART ─────────────────────────────────────────────────────────────────────
+model Cart {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String     @unique @db.ObjectId
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  cartId       String   @db.ObjectId
+  productId    String   @db.ObjectId
+  quantity     Int      @default(1)
+  customDesign Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  cart         Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id])
+
+  @@map("cart_items")
+}
+
+// ─── ORDER ────────────────────────────────────────────────────────────────────
+model Order {
+  id              String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String      @db.ObjectId
+  status          OrderStatus @default(PENDING)
+  total           Float
+  shippingAddress Json
+  paymentStatus   String      @default("pending")
+  paymentMethod   String?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User        @relation(fields: [userId], references: [id])
+  items           OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId      String   @db.ObjectId
+  productId    String   @db.ObjectId
+  quantity     Int
+  price        Float
+  customDesign Json?
+
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+// ─── NEWS ─────────────────────────────────────────────────────────────────────
+model News {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  title          String
+  content        String
+  summary        String?
+  imageUrl       String?
+  sourceUrl      String?
+  category       String   @default("politics")
+  tags           String[] @default([])
+  sentiment      String?
+  sentimentScore Float?
+  isFake         Boolean?
+  fakeScore      Float?
+  isPublished    Boolean  @default(true)
+  createdBy      String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("news")
+}
+
+// ─── REVIEW ───────────────────────────────────────────────────────────────────
+model Review {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("reviews")
+}

@@ -1,12 +1,19 @@
 /**
  * Authentication Controller
- * Handles user registration, login, and authentication logic
+ * Handles user registration, login, profile management
  */
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const prisma = require('../config/database');
+
+const generateToken = (user) =>
+  jwt.sign(
+    { userId: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '7d' }
+  );
 
 /**
  * @desc    Register new user
@@ -15,85 +22,54 @@ const prisma = require('../config/database');
  */
 exports.register = async (req, res, next) => {
   try {
-    // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     const { name, email, password, phone, address } = req.body;
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email already exists'
+        message: 'User with this email already exists',
       });
     }
 
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
         phone,
-        address: address ? {
-          street: address.street,
-          city: address.city,
-          state: address.state,
-          zipCode: address.zipCode,
-          country: address.country
-        } : undefined,
-        role: 'USER' // Default role
+        address: address
+          ? {
+              street: address.street,
+              city: address.city,
+              state: address.state,
+              zipCode: address.zipCode,
+              country: address.country,
+            }
+          : undefined,
+        role: 'USER',
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true
-      }
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
     });
 
-    // Create empty cart for user
-    await prisma.cart.create({
-      data: {
-        userId: user.id
-      }
-    });
+    // Create empty cart
+    await prisma.cart.create({ data: { userId: user.id } });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email,
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || '7d' }
-    );
+    const token = generateToken(user);
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
-      data: {
-        user,
-        token
-      }
+      data: { user, token },
     });
-
   } catch (error) {
     next(error);
   }
@@ -106,70 +82,38 @@ exports.register = async (req, res, next) => {
  */
 exports.login = async (req, res, next) => {
   try {
-    // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     const { email, password } = req.body;
 
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // Check if user is active
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        message: 'Account has been deactivated. Please contact support.'
+        message: 'Account has been deactivated. Please contact support.',
       });
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
-
     if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email,
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || '7d' }
-    );
-
-    // Prepare user response (exclude password)
+    const token = generateToken(user);
     const { password: _, ...userResponse } = user;
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
-      data: {
-        user: userResponse,
-        token
-      }
+      data: { user: userResponse, token },
     });
-
   } catch (error) {
     next(error);
   }
@@ -193,22 +137,15 @@ exports.getMe = async (req, res, next) => {
         address: true,
         avatar: true,
         createdAt: true,
-        updatedAt: true
-      }
+        updatedAt: true,
+      },
     });
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: { user }
-    });
-
+    res.status(200).json({ success: true, data: { user } });
   } catch (error) {
     next(error);
   }
@@ -221,22 +158,23 @@ exports.getMe = async (req, res, next) => {
  */
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { name, phone, address } = req.body;
+    const { name, phone, address, avatar } = req.body;
 
     const updatedUser = await prisma.user.update({
       where: { id: req.user.userId },
       data: {
         ...(name && { name }),
         ...(phone && { phone }),
-        ...(address && { 
+        ...(avatar && { avatar }),
+        ...(address && {
           address: {
             street: address.street,
             city: address.city,
             state: address.state,
             zipCode: address.zipCode,
-            country: address.country
-          }
-        })
+            country: address.country,
+          },
+        }),
       },
       select: {
         id: true,
@@ -245,16 +183,16 @@ exports.updateProfile = async (req, res, next) => {
         role: true,
         phone: true,
         address: true,
-        updatedAt: true
-      }
+        avatar: true,
+        updatedAt: true,
+      },
     });
 
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user: updatedUser }
+      data: { user: updatedUser },
     });
-
   } catch (error) {
     next(error);
   }
@@ -269,36 +207,22 @@ exports.changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
-    // Get user with password
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.userId }
-    });
-
-    // Verify current password
+    const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
 
     if (!isPasswordValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password is incorrect'
-      });
+      return res.status(400).json({ success: false, message: 'Current password is incorrect' });
     }
 
-    // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Update password
     await prisma.user.update({
       where: { id: req.user.userId },
-      data: { password: hashedPassword }
+      data: { password: hashedPassword },
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
     next(error);
   }

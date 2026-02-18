@@ -1,9 +1,21 @@
+/**
+ * News Routes
+ */
+
 const express = require('express');
 const router = express.Router();
 
-// News routes will be implemented here
-router.get('/', (req, res) => {
-  res.json({ success: true, message: 'News routes - to be implemented' });
-});
+const { getAllNews, getNewsById, createNews, updateNews, deleteNews, reAnalyzeNews } = require('../controllers/news');
+const { protect, authorize } = require('../middleware/auth');
+
+// Public
+router.get('/', getAllNews);
+router.get('/:id', getNewsById);
+
+// Admin only
+router.post('/', protect, authorize('ADMIN'), createNews);
+router.put('/:id', protect, authorize('ADMIN'), updateNews);
+router.delete('/:id', protect, authorize('ADMIN'), deleteNews);
+router.post('/:id/analyze', protect, authorize('ADMIN'), reAnalyzeNews);
 
 module.exports = router;
